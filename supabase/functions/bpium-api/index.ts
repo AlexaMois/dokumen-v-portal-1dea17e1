@@ -380,14 +380,17 @@ Deno.serve(async (req) => {
       }
 
       case 'get-catalogs': {
+        // Используем сессионную cookie connect.sid вместо Basic Auth — быстрее и без 403 на части каталогов
+        const cookieHeaders = await getBpiumCookieHeaders();
+
         // Последовательные запросы с задержкой 300мс между ними, чтобы избежать rate limiting от Bpium
-        const directionsRecords = await fetchCatalog(authHeaders, CATALOG_IDS.directions);
+        const directionsRecords = await fetchCatalog(cookieHeaders, CATALOG_IDS.directions);
         await sleep(300);
-        const rolesRecords = await fetchCatalog(authHeaders, CATALOG_IDS.roles);
+        const rolesRecords = await fetchCatalog(cookieHeaders, CATALOG_IDS.roles);
         await sleep(300);
-        const projectsRecords = await fetchCatalog(authHeaders, CATALOG_IDS.projects);
+        const projectsRecords = await fetchCatalog(cookieHeaders, CATALOG_IDS.projects);
         await sleep(300);
-        const sourcesRecords = await fetchCatalog(authHeaders, CATALOG_IDS.sources);
+        const sourcesRecords = await fetchCatalog(cookieHeaders, CATALOG_IDS.sources);
 
         // Теги теперь генерируются AI и не загружаются из справочника
 
