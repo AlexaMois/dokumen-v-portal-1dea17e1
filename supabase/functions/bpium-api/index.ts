@@ -62,6 +62,90 @@ function getBpiumAuthHeaders(): { Authorization: string; 'Content-Type': string 
   };
 }
 
+// Кешированная сессионная cookie connect.sid
+let cachedSessionSid: string | null = null;
+let cachedSessionExpiresAt = 0;
+const SESSION_TTL_MS = 30 * 60 * 1000; // 30 минут
+
+function extractConnectSid(setCookieHeaders: string[]): string | null {
+  for (const header of setCookieHeaders) {
+    const parts = header.split(/,(?=\s*\w+=)/); // split multiple cookies
+    for (const part of parts) {
+      const m = part.match(/connect\.sid=([^;]+)/);
+      if (m) return m[1];
+    }
+  }
+  return null;
+}
+
+async function loginToBpium(): Promise<string> {
+  const login = Deno.env.get('BPIUM_LOGIN');
+  const password = Deno.env.get('BPIUM_PASSWORD');
+  if (!login || !password) {
+    throw new Error('Bpium credentials not configured');
+  }
+
+  const domain = getBpiumDomain();
+  const url = `${domain}/auth/login`;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15_000);
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ login, password }),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => '');
+      throw new BpiumHttpError(`Bpium login failed: ${response.status} ${text}`, response.status);
+    }
+
+    // Deno: getSetCookie() возвращает все Set-Cookie заголовки массивом
+    const setCookies =
+      typeof (response.headers as unknown as { getSetCookie?: () => string[] }).getSetCookie === 'function'
+        ? (response.headers as unknown as { getSetCookie: () => string[] }).getSetCookie()
+        : (() => {
+            const single = response.headers.get('set-cookie');
+            return single ? [single] : [];
+          })();
+
+    const sid = extractConnectSid(setCookies);
+    if (!sid) {
+      throw new BpiumHttpError('Bpium login: connect.sid cookie not found in response', 502);
+    }
+
+    // Освобождаем тело
+    try { await response.body?.cancel(); } catch (_) { /* noop */ }
+
+    console.log('[bpium-api] Logged in to Bpium, session acquired');
+    return sid;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function getBpiumSessionSid(forceRefresh = false): Promise<string> {
+  const now = Date.now();
+  if (!forceRefresh && cachedSessionSid && cachedSessionExpiresAt > now) {
+    return cachedSessionSid;
+  }
+  cachedSessionSid = await loginToBpium();
+  cachedSessionExpiresAt = now + SESSION_TTL_MS;
+  return cachedSessionSid;
+}
+
+async function getBpiumCookieHeaders(): Promise<{ Cookie: string; 'Content-Type': string }> {
+  const sid = await getBpiumSessionSid();
+  return {
+    Cookie: `connect.sid=${sid}`,
+    'Content-Type': 'application/json',
+  };
+}
+
 // Таймаут по умолчанию для всех запросов к Bpium API (60 сек)
 const BPIUM_FETCH_TIMEOUT_MS = 30_000;
 // Retry-настройки: до 2 попыток, базовая задержка 500мс с экспоненциальным ростом
@@ -152,7 +236,7 @@ async function fetchWithTimeout(
   throw lastError ?? new BpiumHttpError(`Bpium request failed after ${BPIUM_MAX_RETRIES} attempts: ${method} ${url}`, 502);
 }
 
-async function fetchCatalog(headers: { Authorization: string; 'Content-Type': string }, catalogId: string): Promise<BpiumRecord[]> {
+async function fetchCatalog(headers: Record<string, string>, catalogId: string): Promise<BpiumRecord[]> {
   const domain = getBpiumDomain();
 
   const response = await fetchWithTimeout(`${domain}/api/v1/catalogs/${catalogId}/records`, {
@@ -168,7 +252,7 @@ async function fetchCatalog(headers: { Authorization: string; 'Content-Type': st
   return await response.json();
 }
 
-async function fetchCatalogInfo(headers: { Authorization: string; 'Content-Type': string }, catalogId: string): Promise<unknown> {
+async function fetchCatalogInfo(headers: Record<string, string>, catalogId: string): Promise<unknown> {
   const domain = getBpiumDomain();
 
   const response = await fetchWithTimeout(`${domain}/api/v1/catalogs/${catalogId}`, {
@@ -296,14 +380,17 @@ Deno.serve(async (req) => {
       }
 
       case 'get-catalogs': {
+        // Используем сессионную cookie connect.sid вместо Basic Auth — быстрее и без 403 на части каталогов
+        const cookieHeaders = await getBpiumCookieHeaders();
+
         // Последовательные запросы с задержкой 300мс между ними, чтобы избежать rate limiting от Bpium
-        const directionsRecords = await fetchCatalog(authHeaders, CATALOG_IDS.directions);
+        const directionsRecords = await fetchCatalog(cookieHeaders, CATALOG_IDS.directions);
         await sleep(300);
-        const rolesRecords = await fetchCatalog(authHeaders, CATALOG_IDS.roles);
+        const rolesRecords = await fetchCatalog(cookieHeaders, CATALOG_IDS.roles);
         await sleep(300);
-        const projectsRecords = await fetchCatalog(authHeaders, CATALOG_IDS.projects);
+        const projectsRecords = await fetchCatalog(cookieHeaders, CATALOG_IDS.projects);
         await sleep(300);
-        const sourcesRecords = await fetchCatalog(authHeaders, CATALOG_IDS.sources);
+        const sourcesRecords = await fetchCatalog(cookieHeaders, CATALOG_IDS.sources);
 
         // Теги теперь генерируются AI и не загружаются из справочника
 
