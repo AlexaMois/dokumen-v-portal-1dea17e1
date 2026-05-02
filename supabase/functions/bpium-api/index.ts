@@ -236,7 +236,7 @@ async function fetchWithTimeout(
   throw lastError ?? new BpiumHttpError(`Bpium request failed after ${BPIUM_MAX_RETRIES} attempts: ${method} ${url}`, 502);
 }
 
-async function fetchCatalog(headers: { Authorization: string; 'Content-Type': string }, catalogId: string): Promise<BpiumRecord[]> {
+async function fetchCatalog(headers: Record<string, string>, catalogId: string): Promise<BpiumRecord[]> {
   const domain = getBpiumDomain();
 
   const response = await fetchWithTimeout(`${domain}/api/v1/catalogs/${catalogId}/records`, {
@@ -252,7 +252,7 @@ async function fetchCatalog(headers: { Authorization: string; 'Content-Type': st
   return await response.json();
 }
 
-async function fetchCatalogInfo(headers: { Authorization: string; 'Content-Type': string }, catalogId: string): Promise<unknown> {
+async function fetchCatalogInfo(headers: Record<string, string>, catalogId: string): Promise<unknown> {
   const domain = getBpiumDomain();
 
   const response = await fetchWithTimeout(`${domain}/api/v1/catalogs/${catalogId}`, {
