@@ -63,9 +63,9 @@ function getBpiumAuthHeaders(): { Authorization: string; 'Content-Type': string 
 }
 
 // Таймаут по умолчанию для всех запросов к Bpium API (60 сек)
-const BPIUM_FETCH_TIMEOUT_MS = 60_000;
-// Retry-настройки: до 3 попыток, базовая задержка 500мс с экспоненциальным ростом
-const BPIUM_MAX_RETRIES = 3;
+const BPIUM_FETCH_TIMEOUT_MS = 30_000;
+// Retry-настройки: до 2 попыток, базовая задержка 500мс с экспоненциальным ростом
+const BPIUM_MAX_RETRIES = 2;
 const BPIUM_RETRY_BASE_DELAY_MS = 500;
 
 class BpiumHttpError extends Error {
@@ -296,13 +296,14 @@ Deno.serve(async (req) => {
       }
 
       case 'get-catalogs': {
-        const [directionsRecords, rolesRecords, projectsRecords, sourcesRecords] = 
-          await Promise.all([
-            fetchCatalog(authHeaders, CATALOG_IDS.directions),
-            fetchCatalog(authHeaders, CATALOG_IDS.roles),
-            fetchCatalog(authHeaders, CATALOG_IDS.projects),
-            fetchCatalog(authHeaders, CATALOG_IDS.sources),
-          ]);
+        // Последовательные запросы с задержкой 300мс между ними, чтобы избежать rate limiting от Bpium
+        const directionsRecords = await fetchCatalog(authHeaders, CATALOG_IDS.directions);
+        await sleep(300);
+        const rolesRecords = await fetchCatalog(authHeaders, CATALOG_IDS.roles);
+        await sleep(300);
+        const projectsRecords = await fetchCatalog(authHeaders, CATALOG_IDS.projects);
+        await sleep(300);
+        const sourcesRecords = await fetchCatalog(authHeaders, CATALOG_IDS.sources);
 
         // Теги теперь генерируются AI и не загружаются из справочника
 
