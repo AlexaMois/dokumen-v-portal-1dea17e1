@@ -1,0 +1,35 @@
+# Wrangler конфиг для Cloudflare Worker `bpium-api-proxy`.
+#
+# Как задеплоить:
+#   1) npm i -g wrangler   (или npx wrangler ...)
+#   2) wrangler login
+#   3) wrangler secret put BPIUM_LOGIN
+#   4) wrangler secret put BPIUM_PASSWORD
+#   5) wrangler deploy
+#
+# Кастомный домен bpium.aleksamois.ru привязывается отдельно:
+#   Cloudflare Dashboard -> Workers & Pages -> bpium-api-proxy
+#     -> Settings -> Domains & Routes -> Add Custom Domain
+#       -> bpium.aleksamois.ru
+# (DNS-запись и SSL Cloudflare создаст сам.)
+#
+# ВНИМАНИЕ: второй worker (supabase-proxy / api.aleksamois.ru) живёт отдельно
+# в infra/cloudflare-worker/worker.js и деплоится своим способом — этот
+# wrangler.toml его НЕ затрагивает.
+
+name = "bpium-api-proxy"
+main = "infra/cloudflare-worker-bpium/worker.js"
+compatibility_date = "2025-05-01"
+
+# Несекретные переменные. Меняй здесь, секреты — только через `wrangler secret put`.
+[vars]
+BPIUM_HOST = "ats.bpium.ru"
+# Если хочешь жёстко ограничить, какому Origin разрешать CORS — раскомментируй:
+# ALLOWED_ORIGIN = "https://dokumen-v-portal.lovable.app"
+
+# Привязка кастомного домена (можно сделать и руками в Dashboard).
+# Раскомментируй после того, как зона aleksamois.ru добавлена в этот же
+# Cloudflare-аккаунт:
+# [[routes]]
+# pattern = "bpium.aleksamois.ru"
+# custom_domain = true
