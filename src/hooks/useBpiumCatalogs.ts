@@ -17,19 +17,14 @@ interface CatalogsResponse {
 
 // Запрос к edge function для получения всех каталогов
 async function fetchAllCatalogs(): Promise<CatalogsResponse> {
-  const supabaseUrl = SUPABASE_BASE_URL;
-  const supabaseKey = SUPABASE_ANON_KEY;
-  
-  const response = await fetch(
-    `${supabaseUrl}/functions/v1/bpium-api?action=get-catalogs`,
-    {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${supabaseKey}`,
-        'Content-Type': 'application/json',
-      },
-    }
-  );
+  const workerUrl = "https://bpium.aleksamois.ru";
+
+  const response = await fetch(`${workerUrl}/api/catalogs`, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
 
   if (!response.ok) {
     const errorText = await response.text();
@@ -77,17 +72,14 @@ export async function checkDocumentDuplicate(documentName: string): Promise<Dupl
   const supabaseUrl = SUPABASE_BASE_URL;
   const supabaseKey = SUPABASE_ANON_KEY;
 
-  const response = await fetch(
-    `${supabaseUrl}/functions/v1/bpium-api?action=check-duplicate`,
-    {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${supabaseKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ documentName }),
-    }
-  );
+  const response = await fetch(`${supabaseUrl}/functions/v1/bpium-api?action=check-duplicate`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${supabaseKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ documentName }),
+  });
 
   if (!response.ok) {
     const errorText = await response.text();
@@ -108,24 +100,21 @@ export async function submitDocumentToBpium(data: {
   roleIds: string[];
   projectIds: string[];
   checklistIds: string[];
-  tags: string[];  // AI-generated tag names (strings)
+  tags: string[]; // AI-generated tag names (strings)
   websiteUrl: string | null;
   submissionDate: string;
 }): Promise<{ success: boolean; recordId: string }> {
   const supabaseUrl = SUPABASE_BASE_URL;
   const supabaseKey = SUPABASE_ANON_KEY;
-  
-  const response = await fetch(
-    `${supabaseUrl}/functions/v1/bpium-api?action=submit-document`,
-    {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${supabaseKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(data),
-    }
-  );
+
+  const response = await fetch(`${supabaseUrl}/functions/v1/bpium-api?action=submit-document`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${supabaseKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(data),
+  });
 
   if (!response.ok) {
     const errorText = await response.text();
