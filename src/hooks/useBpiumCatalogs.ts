@@ -17,11 +17,10 @@ interface CatalogsResponse {
 
 // Запрос к edge function для получения всех каталогов
 async function fetchAllCatalogs(): Promise<CatalogsResponse> {
-  const workerUrl = "https://bpium.aleksamois.ru";
-
-  const response = await fetch(`${workerUrl}/api/catalogs`, {
+  const response = await fetch(`${SUPABASE_BASE_URL}/functions/v1/bpium-api?action=get-catalogs`, {
     method: "GET",
     headers: {
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
       "Content-Type": "application/json",
     },
   });
