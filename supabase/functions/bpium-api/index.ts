@@ -78,6 +78,57 @@ function extractConnectSid(setCookieHeaders: string[]): string | null {
   return null;
 }
 
+async function tryLoginVariant(
+  url: string,
+  body: Record<string, string>,
+  variantLabel: string,
+  timeoutMs: number,
+): Promise<{ ok: true; sid: string } | { ok: false; status: number; text: string }> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => '');
+      console.warn(
+        `[bpium-api] login variant "${variantLabel}" -> ${response.status}. ` +
+          `Body: ${text.slice(0, 300)}`,
+      );
+      return { ok: false, status: response.status, text };
+    }
+
+    const setCookies =
+      typeof (response.headers as unknown as { getSetCookie?: () => string[] }).getSetCookie === 'function'
+        ? (response.headers as unknown as { getSetCookie: () => string[] }).getSetCookie()
+        : (() => {
+            const single = response.headers.get('set-cookie');
+            return single ? [single] : [];
+          })();
+
+    const sid = extractConnectSid(setCookies);
+    try { await response.body?.cancel(); } catch (_) { /* noop */ }
+
+    if (!sid) {
+      console.warn(
+        `[bpium-api] login variant "${variantLabel}" succeeded but connect.sid cookie not found. ` +
+          `Set-Cookie headers: ${JSON.stringify(setCookies)}`,
+      );
+      return { ok: false, status: 502, text: 'no connect.sid cookie' };
+    }
+
+    console.log(`[bpium-api] login variant "${variantLabel}" OK, session acquired`);
+    return { ok: true, sid };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 async function loginToBpium(): Promise<string> {
   const login = Deno.env.get('BPIUM_LOGIN');
   const password = Deno.env.get('BPIUM_PASSWORD');
@@ -88,44 +139,34 @@ async function loginToBpium(): Promise<string> {
   const domain = getBpiumDomain();
   const url = `${domain}/auth/login`;
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 15_000);
+  // Диагностика: какие именно креды используются (без раскрытия секретов)
+  console.log(
+    `[bpium-api] Attempting login. domain="${domain}", url="${url}", ` +
+      `loginLength=${login.length}, loginPreview="${login.slice(0, 3)}***${login.slice(-3)}", ` +
+      `passwordLength=${password.length}, hasLeadingSpace=${/^\s/.test(login) || /^\s/.test(password)}, ` +
+      `hasTrailingSpace=${/\s$/.test(login) || /\s$/.test(password)}`,
+  );
 
-  try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ login, password }),
-      signal: controller.signal,
-    });
+  // Bpium у разных инсталляций ожидает разное имя поля.
+  // Пробуем последовательно: login, email, username.
+  const attempts: Array<{ label: string; body: Record<string, string> }> = [
+    { label: 'login+password', body: { login, password } },
+    { label: 'email+password', body: { email: login, password } },
+    { label: 'username+password', body: { username: login, password } },
+  ];
 
-    if (!response.ok) {
-      const text = await response.text().catch(() => '');
-      throw new BpiumHttpError(`Bpium login failed: ${response.status} ${text}`, response.status);
-    }
-
-    // Deno: getSetCookie() возвращает все Set-Cookie заголовки массивом
-    const setCookies =
-      typeof (response.headers as unknown as { getSetCookie?: () => string[] }).getSetCookie === 'function'
-        ? (response.headers as unknown as { getSetCookie: () => string[] }).getSetCookie()
-        : (() => {
-            const single = response.headers.get('set-cookie');
-            return single ? [single] : [];
-          })();
-
-    const sid = extractConnectSid(setCookies);
-    if (!sid) {
-      throw new BpiumHttpError('Bpium login: connect.sid cookie not found in response', 502);
-    }
-
-    // Освобождаем тело
-    try { await response.body?.cancel(); } catch (_) { /* noop */ }
-
-    console.log('[bpium-api] Logged in to Bpium, session acquired');
-    return sid;
-  } finally {
-    clearTimeout(timeoutId);
+  let lastFailure: { status: number; text: string } | null = null;
+  for (const attempt of attempts) {
+    const result = await tryLoginVariant(url, attempt.body, attempt.label, 15_000);
+    if (result.ok) return result.sid;
+    lastFailure = { status: result.status, text: result.text };
+    // Если 4xx — ретраим следующий вариант поля; если 5xx/network — тоже пробуем
   }
+
+  throw new BpiumHttpError(
+    `Bpium login failed after trying login/email/username. Last status=${lastFailure?.status}, body=${(lastFailure?.text || '').slice(0, 300)}`,
+    lastFailure?.status ?? 401,
+  );
 }
 
 async function getBpiumSessionSid(forceRefresh = false): Promise<string> {
