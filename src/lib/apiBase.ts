@@ -7,7 +7,7 @@
  * Откат: поставить PROXY_URL = "" — тогда будет использоваться оригинальный
  * VITE_SUPABASE_URL и приложение пойдёт напрямую в Supabase.
  */
-const PROXY_URL = "https://api.aleksamois.ru";
+const PROXY_URL = "";
 
 export const SUPABASE_BASE_URL: string =
   PROXY_URL || (import.meta.env.VITE_SUPABASE_URL as string);
